@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PATIENT
+  PHARMACIST
+  DELIVERY_PARTNER
+  ADMIN
+}
+
+enum OrderStatus {
+  PRESCRIPTION_UPLOADED
+  VERIFIED
+  PACKED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  REJECTED
+}
+
+enum PrescriptionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  COD
+}
+
+enum PaymentMethod {
+  ONLINE
+  COD
+}
+
+enum DeliveryTaskStatus {
+  ASSIGNED
+  ACCEPTED
+  REJECTED
+  PICKED_UP
+  REACHED_DESTINATION
+  DELIVERED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  name         String
+  phone        String   @unique
+  role         UserRole @default(PATIENT)
+  isActive     Boolean  @default(true)
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  addresses        Address[]
+  prescriptions    Prescription[]
+  orders           Order[]
+  deliveryTasks    DeliveryTask[]    @relation("DeliveryPartner")
+  reviewedRx       Prescription[]   @relation("ReviewedBy")
+  cart             Cart?
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+  otpVerifications OtpVerification[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  label     String   @default("Home")
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  lat       Float?
+  lng       Float?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([userId])
+}
+
+model Prescription {
+  id           String             @id @default(uuid())
+  userId       String
+  fileUrl      String
+  fileName     String
+  fileType     String
+  publicId     String?
+  status       PrescriptionStatus @default(PENDING)
+  reviewedById String?
+  reviewNote   String?
+  reviewedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  orders     Order[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Medicine {
+  id                   String    @id @default(uuid())
+  name                 String
+  genericName          String?
+  manufacturer         String?
+  category             String
+  description          String?
+  requiresPrescription Boolean   @default(false)
+  price                Float
+  imageUrl             String?
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  inventory  Inventory?
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@index([category])
+  @@index([requiresPrescription])
+}
+
+model Inventory {
+  id           String   @id @default(uuid())
+  medicineId   String   @unique
+  stock        Int      @default(0)
+  reorderLevel Int      @default(10)
+  updatedAt    DateTime @updatedAt
+
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+}
+
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+}
+
+model CartItem {
+  id         String   @id @default(uuid())
+  cartId     String
+  medicineId String
+  quantity   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cart     Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id])
+
+  @@unique([cartId, medicineId])
+}
+
+model Order {
+  id             String        @id @default(uuid())
+  userId         String
+  prescriptionId String?
+  addressId      String
+  status         OrderStatus   @default(PRESCRIPTION_UPLOADED)
+  totalAmount    Float
+  deliveryFee    Float         @default(0)
+  paymentMethod  PaymentMethod @default(COD)
+  invoiceUrl     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id])
+  prescription Prescription?   @relation(fields: [prescriptionId], references: [id])
+  address      Address         @relation(fields: [addressId], references: [id])
+  items        OrderItem[]
+  payment      Payment?
+  delivery     DeliveryTask?
+  timeline     StatusTimeline[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id         String @id @default(uuid())
+  orderId    String
+  medicineId String
+  quantity   Int
+  price      Float
+
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id])
+
+  @@index([orderId])
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String        @unique
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  amount            Float
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model DeliveryTask {
+  id           String             @id @default(uuid())
+  orderId      String             @unique
+  partnerId    String?
+  status       DeliveryTaskStatus @default(ASSIGNED)
+  otp          String?
+  assignedAt   DateTime?
+  acceptedAt   DateTime?
+  pickedAt     DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  partner User? @relation("DeliveryPartner", fields: [partnerId], references: [id])
+
+  @@index([partnerId])
+  @@index([status])
+}
+
+model StatusTimeline {
+  id        String      @id @default(uuid())
+  orderId   String
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  userId    String
+  otp       String
+  purpose   String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  action     String
+  entityType String
+  entityId   String
+  details    String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  type      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

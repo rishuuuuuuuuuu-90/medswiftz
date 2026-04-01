@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mediswiftzzz_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mediswiftzzz
+      POSTGRES_PASSWORD: mediswiftzzz_secret
+      POSTGRES_DB: mediswiftzzz
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediswiftzzz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: mediswiftzzz_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://mediswiftzzz:mediswiftzzz_secret@postgres:5432/mediswiftzzz
+      JWT_ACCESS_SECRET: your_access_secret_change_this
+      JWT_REFRESH_SECRET: your_refresh_secret_change_this
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "5000:5000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: mediswiftzzz_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000/api
+      NEXT_PUBLIC_SOCKET_URL: http://localhost:5000
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
