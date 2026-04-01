@@ -4,11 +4,13 @@ import { prisma } from '../utils/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth.middleware';
 
-let Razorpay: typeof import('razorpay');
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let RazorpayConstructor: (new (opts: { key_id: string; key_secret: string }) => any) | undefined;
 try {
-  Razorpay = require('razorpay');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  RazorpayConstructor = require('razorpay');
 } catch {
-  // Razorpay not available in dev without keys
+  // Razorpay optional in dev without keys
 }
 
 export const createRazorpayOrder = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -23,7 +25,11 @@ export const createRazorpayOrder = async (req: AuthRequest, res: Response, next:
       throw new AppError('Payment gateway not configured', 500);
     }
 
-    const razorpay = new (Razorpay as any)({
+    if (!RazorpayConstructor) {
+      throw new AppError('Razorpay module not available', 500);
+    }
+
+    const razorpay = new RazorpayConstructor({
       key_id: process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });

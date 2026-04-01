@@ -1,7 +1,11 @@
 import { Server as HttpServer } from 'http';
-import { Server as SocketServer } from 'socket.io';
+import { Server as SocketServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { logger } from './utils/logger';
+
+interface AuthenticatedSocket extends Socket {
+  user?: { userId: string; email: string; role: string };
+}
 
 let io: SocketServer;
 
@@ -13,23 +17,22 @@ export const initSocket = (server: HttpServer) => {
     },
   });
 
-  io.use((socket, next) => {
+  io.use((socket: AuthenticatedSocket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
       return next(new Error('Authentication required'));
     }
     try {
-      const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!);
-      (socket as any).user = payload;
+      const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as { userId: string; email: string; role: string };
+      socket.user = payload;
       next();
     } catch {
       next(new Error('Invalid token'));
     }
   });
 
-  io.on('connection', (socket) => {
-    const user = (socket as any).user;
-    logger.info(`Socket connected: ${socket.id} user: ${user?.userId}`);
+  io.on('connection', (socket: AuthenticatedSocket) => {
+    logger.info(`Socket connected: ${socket.id} user: ${socket.user?.userId}`);
 
     socket.on('join:room', (room: string) => {
       socket.join(room);
